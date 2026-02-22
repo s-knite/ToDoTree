@@ -13,7 +13,7 @@ A highly visual, infinite-canvas task manager that lets you break down complex g
 * **Mobile Optimized:** Fully responsive with custom touch-targets, mobile-specific modals, and gesture support for phones and tablets.
 * **Keyboard Shortcuts:** Power-user shortcuts for rapid task creation, navigation, and canvas centering.
 
-## 🚀 Getting Started
+## About
 
 This project (including the readme) is built using Gemini using vanilla JavaScript and Tailwind CSS (via CDN). There are no build tools, no npm installs, and no complex local servers required.
 
