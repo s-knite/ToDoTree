@@ -387,6 +387,94 @@ switch (e.key) {
     }
 });
 
+// --- Mobile Touch Controls ---
+let initialPinchDistance = null;
+let initialScale = 1;
+let lastTouchPanX = 0;
+let lastTouchPanY = 0;
+
+// Helper to get distance between two fingers
+function getDistance(touches) {
+    return Math.hypot(
+        touches[0].clientX - touches[1].clientX,
+        touches[0].clientY - touches[1].clientY
+    );
+}
+
+// Helper to get the center point of one or two fingers
+function getTouchCenter(touches) {
+    if (touches.length === 1) {
+        return { x: touches[0].clientX, y: touches[0].clientY };
+    }
+    return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2
+    };
+}
+
+document.addEventListener('touchstart', (e) => {
+    // Don't pan if they are tapping a button, input, or checkbox
+    if (e.target.closest('button, input, textarea')) return;
+
+    if (e.touches.length === 1 || e.touches.length === 2) {
+        const center = getTouchCenter(e.touches);
+        lastTouchPanX = center.x;
+        lastTouchPanY = center.y;
+    }
+
+    if (e.touches.length === 2) {
+        initialPinchDistance = getDistance(e.touches);
+        initialScale = scale;
+    }
+}, { passive: false });
+
+document.addEventListener('touchmove', (e) => {
+    // Prevent default scrolling only if we are touching the canvas background
+    if (!e.target.closest('.node-container')) {
+        e.preventDefault(); 
+    }
+
+    // Handle Panning (1 or 2 fingers)
+    if (e.touches.length === 1 || e.touches.length === 2) {
+        const center = getTouchCenter(e.touches);
+        const deltaX = center.x - lastTouchPanX;
+        const deltaY = center.y - lastTouchPanY;
+
+        cameraX += deltaX;
+        cameraY += deltaY;
+
+        lastTouchPanX = center.x;
+        lastTouchPanY = center.y;
+        
+        updateCanvas();
+    }
+
+    // Handle Pinch to Zoom (2 fingers only)
+    if (e.touches.length === 2 && initialPinchDistance) {
+        const currentDistance = getDistance(e.touches);
+        const pinchRatio = currentDistance / initialPinchDistance;
+        
+        // Calculate new scale and clamp it between min/max limits (e.g., 0.2x to 2x)
+        let newScale = initialScale * pinchRatio;
+        newScale = Math.max(0.2, Math.min(newScale, 2)); 
+        
+        scale = newScale;
+        updateCanvas();
+    }
+}, { passive: false });
+
+document.addEventListener('touchend', (e) => {
+    // Reset pinch distance if a finger lifts
+    if (e.touches.length < 2) {
+        initialPinchDistance = null;
+    }
+    // If one finger remains down after a pinch, reset the pan anchor so it doesn't jump
+    if (e.touches.length === 1) {
+        lastTouchPanX = e.touches[0].clientX;
+        lastTouchPanY = e.touches[0].clientY;
+    }
+});
+
 
 // --- Modal Manager ---
 const modal = document.getElementById('link-modal');
