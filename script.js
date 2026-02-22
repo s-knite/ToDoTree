@@ -613,19 +613,18 @@ class TodoNode {
         // Stop canvas drag when clicking checkbox
         this.checkbox.addEventListener('mousedown', (e) => e.stopPropagation()); 
 
-        // Title Logic
+       // Title Logic
         const titleEl = div.querySelector('.node-title');
         titleEl.innerText = this.title;
         titleEl.addEventListener('input', () => updateTreeLayout());
         titleEl.addEventListener('blur', (e) => {
-            // If it's just whitespace or empty, force it truly empty
             if (e.target.innerText.trim() === '') {
                 e.target.innerHTML = '';
                 this.title = '';
             } else {
                 this.title = e.target.innerText;
             }
-            saveToLocalStorage();
+            DataManager.save(); // <-- FIXED HERE
         });
 
         // Description Logic
@@ -633,14 +632,13 @@ class TodoNode {
         descEl.innerText = this.description;
         descEl.addEventListener('input', () => updateTreeLayout());
         descEl.addEventListener('blur', (e) => {
-            // Scrub the hidden <br> tags if the user cleared the text
             if (e.target.innerText.trim() === '') {
-                e.target.innerHTML = ''; // This tells the CSS :empty placeholder to reappear!
+                e.target.innerHTML = ''; 
                 this.description = '';
             } else {
                 this.description = e.target.innerText;
             }
-            saveToLocalStorage();
+            DataManager.save(); // <-- FIXED HERE
         });
 
         // Date Logic
@@ -648,8 +646,9 @@ class TodoNode {
         dateInput.value = this.dueDate;
         dateInput.addEventListener('change', (e) => {
             this.dueDate = e.target.value;
-            saveToLocalStorage();
+            DataManager.save(); // <-- FIXED HERE
         });
+
         const addLinkBtn = div.querySelector('.node-add-link');
         addLinkBtn.addEventListener('click', (e) => {
             e.stopPropagation(); 
@@ -658,13 +657,12 @@ class TodoNode {
                 const displayText = text.trim() || validUrl.replace(/^https?:\/\//, ''); 
                 this.links.push({ url: validUrl, text: displayText });
                 this.renderLinks();
+                DataManager.save(); // <-- ADDED HERE
             });
         });
 
         this.linksContainer = div.querySelector('.node-links');
-        // 1. Stop canvas drag on the whole links area
         this.linksContainer.addEventListener('mousedown', (e) => e.stopPropagation()); 
-        // 2. Catch any delete button clicks that bubble up
         this.linksContainer.addEventListener('click', (e) => {
             const deleteBtn = e.target.closest('.link-delete-btn');
             if (deleteBtn) {
@@ -672,9 +670,9 @@ class TodoNode {
                 const index = parseInt(deleteBtn.dataset.index, 10);
                 this.links.splice(index, 1);
                 this.renderLinks();
+                DataManager.save(); // <-- ADDED HERE
             }
         });
-        
         this.progressBar = div.querySelector('.node-progress');
         this.progressText = div.querySelector('.node-progress-text'); // The percentage text
 
@@ -857,7 +855,7 @@ renderLinks() {
     }
 
 
-setCompleteState(isComplete, recursive) {
+    setCompleteState(isComplete, recursive) {
         this.isCompleted = isComplete;
         this.checkbox.checked = isComplete;
         
@@ -869,6 +867,7 @@ setCompleteState(isComplete, recursive) {
         this.calculateProgress();
         
         updateTreeLayout();
+        DataManager.save(); // <-- ADD THIS LINE HERE!
     }
 
     /**
@@ -1074,6 +1073,7 @@ function updateTreeLayout() {
             pendingCameraPan = false;
         }
     });
+    DataManager.save();
 }
 
 function downloadBackup() {
