@@ -34,44 +34,48 @@
 
 
 <template id="node-template">
-        <div class="node-container absolute w-72 bg-slate-800 border border-slate-600 rounded-lg shadow-xl p-4 flex flex-col gap-3 cursor-pointer transition-all duration-300 hover:border-blue-500 z-10">
-            
-            <button class="node-delete absolute top-3 right-3 text-slate-500 hover:text-red-500 transition-colors bg-transparent border-none cursor-pointer" title="Delete Task">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                  <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
-                  <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
-                </svg>
-            </button>
+    <div class="node-container absolute w-72 bg-slate-800 border border-slate-600 rounded-lg shadow-xl p-4 flex flex-col gap-3 cursor-pointer transition-all duration-300 hover:border-blue-500 z-10">
+        
+        <button class="node-delete absolute top-3 right-3 text-slate-500 hover:text-red-500 transition-colors bg-transparent border-none cursor-pointer" title="Delete Task">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+              <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+            </svg>
+        </button>
 
-            <div class="flex items-start gap-3 pr-6">
-                <input type="checkbox" class="node-complete-cb mt-1 w-4 h-4 cursor-pointer accent-blue-500 flex-shrink-0">
-                <div class="node-title text-white font-bold text-base outline-none break-words flex-grow" contenteditable="true"></div>
-            </div>
+        <div class="flex items-start gap-3 pr-6">
+            <input type="checkbox" class="node-complete-cb mt-1 w-4 h-4 cursor-pointer accent-blue-500 flex-shrink-0">
+            <div class="node-title text-white font-bold text-base outline-none break-words flex-grow" contenteditable="true"></div>
+        </div>
 
-            <div class="node-desc text-slate-300 text-sm outline-none break-words empty:before:content-['Add_a_description...'] empty:before:text-slate-500" contenteditable="true"></div>
-            
-            <div class="flex justify-between items-center gap-2 border-t border-slate-700 pt-2 mt-1">
-                <input type="date" class="node-date bg-slate-700 text-slate-300 text-xs rounded p-1 border border-slate-600 outline-none focus:border-blue-500 custom-date">
-                <button class="node-add-link text-xs text-blue-400 hover:text-blue-300 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded transition-colors flex-shrink-0">+ Link</button>
-            </div>
-            
-            <div class="node-links flex flex-col gap-1"></div>
-            
-            <div class="flex items-center gap-2">
+        <div class="node-desc text-slate-300 text-sm outline-none break-words empty:before:content-['Add_a_description...'] empty:before:text-slate-500" contenteditable="true"></div>
+        
+        <div class="node-links flex flex-col gap-1"></div>
+        
+        <div class="flex justify-between items-center gap-3 border-t border-slate-700 pt-3 mt-1">
+            <div class="flex-1 flex items-center gap-2">
                 <div class="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
                     <div class="node-progress bg-blue-500 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
                 </div>
                 <span class="node-progress-text text-[10px] text-slate-400 w-8 text-right">0%</span>
             </div>
-            
-            <div class="flex justify-end mt-1">
-                <button class="node-add-subtask text-xs text-white px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded transition-colors shadow-md">+ Subtask</button>
-            </div>
-
-            <button class="node-collapse-btn absolute -right-3 top-1/2 -translate-y-1/2 bg-slate-700 hover:bg-slate-600 border border-slate-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs shadow-md transition-transform z-10 hidden">
+            <button class="node-add-link text-xs text-blue-400 hover:text-blue-300 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded transition-colors flex-shrink-0 whitespace-nowrap">
+                + Link
             </button>
         </div>
-    </template>
+
+        <div class="flex gap-2 mt-1">
+            <input type="date" class="node-date flex-1 h-8 bg-slate-700 text-slate-300 text-xs rounded px-2 border border-slate-600 outline-none focus:border-blue-500 custom-date flex-shrink-0 cursor-pointer text-center box-border">
+            
+            <button class="node-add-subtask flex-1 h-8 flex items-center justify-center text-xs text-white bg-blue-600 hover:bg-blue-500 rounded transition-colors shadow-md whitespace-nowrap box-border">
+                + Subtask
+            </button>
+        </div>
+
+        <button class="node-collapse-btn absolute -right-3 top-1/2 -translate-y-1/2 bg-slate-700 hover:bg-slate-600 border border-slate-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs shadow-md transition-transform z-10 hidden">
+        </button>
+    </div>
+</template>
 
 <template id="link-template">
     <div class="flex items-center group mb-1">
