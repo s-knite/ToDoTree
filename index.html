@@ -208,14 +208,14 @@
     </template>
 
     <template id="link-template">
-      <div class="flex items-center group mb-1">
+      <div class="flex items-center group mb-1 [@media(pointer:coarse)]:mb-3">
         <button
-          class="link-delete-btn text-red-500 hover:text-red-700 font-bold px-1 text-sm opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer mr-1 leading-none"
+          class="link-delete-btn text-red-500 hover:text-red-700 font-bold px-1 text-sm opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer mr-1 leading-none [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:text-2xl [@media(pointer:coarse)]:px-3 [@media(pointer:coarse)]:py-2 [@media(pointer:coarse)]:-ml-2"
         >
           ×
         </button>
         <a
-          class="link-url flex-1 text-xs text-blue-400 hover:text-blue-300 hover:underline truncate relative pl-3 before:content-['🔗'] before:absolute before:left-0 before:text-[8px] before:top-[2px] before:opacity-70"
+          class="link-url flex-1 text-xs [@media(pointer:coarse)]:text-base text-blue-400 hover:text-blue-300 hover:underline truncate relative pl-3 [@media(pointer:coarse)]:pl-5 before:content-['🔗'] before:absolute before:left-0 before:text-[8px] [@media(pointer:coarse)]:before:text-sm before:top-[2px] [@media(pointer:coarse)]:before:top-[2px] before:opacity-70"
           target="_blank"
         ></a>
       </div>
