@@ -1,35 +1,58 @@
 const viewport = document.getElementById('viewport');
 const canvas = document.getElementById('canvas');
-
 // Canvas State
-// Start in the middle of the screen
 let cameraX = window.innerWidth / 2; 
 let cameraY = window.innerHeight / 2;
 let scale = 1;
-
 // Zoom Constraints
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 3;
-
 // Dragging State
 let isDragging = false;
 let dragStartX = 0;
 let dragStartY = 0;
-
-// --- Smooth Panning Engine ---
-let panAnimationId = null;
-
-// Standard ease-in-out cubic function for a smooth glide
-function easeInOutCubic(t) {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
-
+//other
 const branchColors = ['#ffadad', '#ffd6a5', '#fdffb6', '#caffbf', '#9bf6ff', '#a0c4ff', '#bdb2ff', '#ffc6ff'];
 
+//helpers
 function getRandomColor() {
     return branchColors[Math.floor(Math.random() * branchColors.length)];
 }
 
+// Helper to focus a contenteditable element and highlight all its text
+function focusAndSelectAll(el) {
+    if (!el) return;
+    el.focus();
+    
+    // Use the browser's Range API to highlight the text inside the div
+    if (typeof window.getSelection !== "undefined" && typeof document.createRange !== "undefined") {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+}
+// Helper to focus contenteditable elements and move cursor to the end
+function focusAndPlaceCursorAtEnd(el) {
+    if (!el) return;
+    el.focus();
+    if (typeof window.getSelection !== "undefined" && typeof document.createRange !== "undefined") {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false); // false means collapse to the end
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+}
+
+// --- Smooth Panning Engine ---
+let panAnimationId = null;
+// Standard ease-in-out cubic function for a smooth glide
+function easeInOutCubic(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
 function panCameraTo(targetX, targetY, duration = 400) {
     // Cancel any existing animation so they don't fight
     if (panAnimationId) cancelAnimationFrame(panAnimationId);
@@ -56,54 +79,37 @@ function panCameraTo(targetX, targetY, duration = 400) {
     panAnimationId = requestAnimationFrame(animate);
 }
 
-// Helper to focus a contenteditable element and highlight all its text
-function focusAndSelectAll(el) {
-    if (!el) return;
-    el.focus();
-    
-    // Use the browser's Range API to highlight the text inside the div
-    if (typeof window.getSelection !== "undefined" && typeof document.createRange !== "undefined") {
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-    }
-}
 
-
-// Helper to focus contenteditable elements and move cursor to the end
-function focusAndPlaceCursorAtEnd(el) {
-    if (!el) return;
-    el.focus();
-    if (typeof window.getSelection !== "undefined" && typeof document.createRange !== "undefined") {
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        range.collapse(false); // false means collapse to the end
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-    }
-}
 // --- Selection State ---
 let activeNode = null;
+let pendingCameraPan = false; // NEW: Tracks if the camera is waiting for layout
+
+// Helper to handle the actual panning math
+function focusActiveNodeCamera() {
+    if (!activeNode) return;
+    const targetX = (window.innerWidth / 2) - activeNode.x * scale;
+    const targetY = (window.innerHeight / 2) - activeNode.y * scale;
+    panCameraTo(targetX, targetY);
+}
 
 function setActiveNode(node) {
-    // Remove glow from previously active node
+    // 1. Remove glow from previously active node
     if (activeNode && activeNode.element) {
         activeNode.element.classList.remove('ring-4', 'ring-blue-500', 'ring-offset-4', 'ring-offset-slate-900');
     }
     
     activeNode = node;
     
-    // Add glow to new active node and smoothly pan to it
+    // 2. Add glow to new active node
     if (activeNode && activeNode.element) {
         activeNode.element.classList.add('ring-4', 'ring-blue-500', 'ring-offset-4', 'ring-offset-slate-900');
         
-        const targetX = (window.innerWidth / 2) - activeNode.x * scale;
-        const targetY = (window.innerHeight / 2) - activeNode.y * scale;
-        
-        panCameraTo(targetX, targetY);
+        // 3. CORE FIX: If layout is calculating, queue the pan. Otherwise, pan now.
+        if (layoutFrameRequest) {
+            pendingCameraPan = true;
+        } else {
+            focusActiveNodeCamera();
+        }
     }
 }
 
@@ -115,14 +121,45 @@ function updateCanvas() {
     canvas.style.transform = `translate(${cameraX}px, ${cameraY}px) scale(${scale})`;
     
     // 2. Synchronize the grid background
-    // The grid needs to scale up/down with the canvas
     const gridSize = 50 * scale; 
     viewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
-    // The grid needs to shift exactly as much as the camera shifts
     viewport.style.backgroundPosition = `${cameraX}px ${cameraY}px`;
 }
-// --- Canvas Event Listeners (Paste this right below updateCanvas) ---
 
+// --- Smart Centering ---
+function findFirstIncompleteTask(nodes) {
+    for (let node of nodes) {
+        if (!node.isCompleted) return node;
+        if (node.children.length > 0) {
+            const foundInChild = findFirstIncompleteTask(node.children);
+            if (foundInChild) return foundInChild;
+        }
+    }
+    return null;
+}
+
+function recenterCamera() {
+    if (rootTasks.length === 0) {
+        panCameraTo(window.innerWidth / 2, window.innerHeight / 2);
+        return;
+    }
+
+    // 1. Find the first incomplete task in the tree
+    let targetNode = findFirstIncompleteTask(rootTasks);
+
+    // 2. Fallback: If EVERYTHING is completed, just target the first root node
+    if (!targetNode) {
+        targetNode = rootTasks[0];
+    }
+
+    // 3. Reset zoom scale to 1 for a clean view, then pan to the target node
+    scale = 1; 
+    
+    // Set the target node as active (which automatically calls panCameraTo for us!)
+    setActiveNode(targetNode); 
+}
+
+// --- Event Listeners ---
 viewport.addEventListener('wheel', (e) => {
     e.preventDefault();
     if (panAnimationId) cancelAnimationFrame(panAnimationId);
@@ -170,39 +207,6 @@ window.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseup', () => {
     isDragging = false;
 });
-
-// --- Smart Centering ---
-function findFirstIncompleteTask(nodes) {
-    for (let node of nodes) {
-        if (!node.isCompleted) return node;
-        if (node.children.length > 0) {
-            const foundInChild = findFirstIncompleteTask(node.children);
-            if (foundInChild) return foundInChild;
-        }
-    }
-    return null;
-}
-
-function recenterCamera() {
-    if (rootTasks.length === 0) {
-        panCameraTo(window.innerWidth / 2, window.innerHeight / 2);
-        return;
-    }
-
-    // 1. Find the first incomplete task in the tree
-    let targetNode = findFirstIncompleteTask(rootTasks);
-
-    // 2. Fallback: If EVERYTHING is completed, just target the first root node
-    if (!targetNode) {
-        targetNode = rootTasks[0];
-    }
-
-    // 3. Reset zoom scale to 1 for a clean view, then pan to the target node
-    scale = 1; 
-    
-    // Set the target node as active (which automatically calls panCameraTo for us!)
-    setActiveNode(targetNode); 
-}
 
 window.addEventListener('keydown', (e) => {
     // --- Intercept Modal Controls ---
@@ -354,13 +358,14 @@ window.addEventListener('keydown', (e) => {
     const siblings = activeNode.parent ? activeNode.parent.children : rootTasks;
     const currentIndex = siblings.indexOf(activeNode);
 
-    switch (e.key) {
+switch (e.key) {
         case 'ArrowRight':
             if (activeNode.children.length > 0) {
                 if (!activeNode.isExpanded) {
                     activeNode.isExpanded = true;
-                    updateTreeLayout();
+                    updateTreeLayout(); 
                 }
+                // Because of our core fix, we can just call this immediately!
                 setActiveNode(activeNode.children[0]);
             }
             break;
@@ -381,6 +386,7 @@ window.addEventListener('keydown', (e) => {
             break;
     }
 });
+
 
 // --- Modal Manager ---
 const modal = document.getElementById('link-modal');
@@ -457,19 +463,20 @@ const rootTasks = [];
 
 document.getElementById('add-root-btn').addEventListener('click', () => {
     // Add new roots to the array
-    const newRoot = new TodoNode("New Task", 200, 200);
+    const newRoot = new TodoNode("New Task", 0, 0);
     rootTasks.push(newRoot);
+    
+    // Clean, sequential calls
     updateTreeLayout();
     setActiveNode(newRoot);
-    //Focus and select the title text
+    
+    // Focus and select the title text
     setTimeout(() => {
         const titleEl = newRoot.element.querySelector('.node-title');
         focusAndSelectAll(titleEl);
     }, 10);
 });
-
 // --- Node Class ---
-
 class TodoNode {
     constructor(title, x, y, parent = null, savedColor = null) {
         this.id = 'node_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11);
@@ -567,6 +574,18 @@ class TodoNode {
         });
 
         this.linksContainer = div.querySelector('.node-links');
+        // 1. Stop canvas drag on the whole links area
+        this.linksContainer.addEventListener('mousedown', (e) => e.stopPropagation()); 
+        // 2. Catch any delete button clicks that bubble up
+        this.linksContainer.addEventListener('click', (e) => {
+            const deleteBtn = e.target.closest('.link-delete-btn');
+            if (deleteBtn) {
+                e.stopPropagation();
+                const index = parseInt(deleteBtn.dataset.index, 10);
+                this.links.splice(index, 1);
+                this.renderLinks();
+            }
+        });
         
         this.progressBar = div.querySelector('.node-progress');
         this.progressText = div.querySelector('.node-progress-text'); // The percentage text
@@ -608,9 +627,18 @@ class TodoNode {
         return div;
     }
 
+    syncUI() {
+        this.element.querySelector('.node-title').innerText = this.title;
+        this.element.querySelector('.node-desc').innerText = this.description;
+        this.element.querySelector('.node-date').value = this.dueDate;
+        
+        this.checkbox.checked = this.isCompleted;
+        this.renderLinks();
+        this.updateVisualStyle();
+    }
+
     /**
-     * Checks if the node is pristine/blank. If yes, deletes immediately.
-     * If edited or has children, prompts the user.
+     * Checks if the node is pristine/blank
      */
     requestDelete() {
             const isDefaultTitle = this.title === "New Subtask" || this.title === "New Task" || this.title.trim() === "";
@@ -638,7 +666,6 @@ class TodoNode {
         //Recursively delete all children first so we don't leave orphaned DOM elements!
         [...this.children].forEach(child => child.removeNode());
 
-
         // 1. Remove from DOM
         if (activeNode === this) {
             setActiveNode(this.parent || rootTasks[0] || null);
@@ -657,46 +684,34 @@ class TodoNode {
         }
         
         // 3. Re-draw the tree
-        // Note: we only want to call this once at the end of the chain. 
-        // If it's a root or it's directly triggered by the user, we call layout.
         if (!this.parent || typeof updateTreeLayout === 'function') {
             updateTreeLayout();
         }
     }
 
-    renderLinks() {
-            if (!this.linksContainer) return;
-            this.linksContainer.innerHTML = ''; 
+renderLinks() {
+        if (!this.linksContainer) return;
+        this.linksContainer.innerHTML = ''; 
+        
+        const template = document.getElementById('link-template');
+
+        this.links.forEach((linkObj, index) => {
+            const clone = template.content.cloneNode(true); 
             
-            const template = document.getElementById('link-template');
+            // 1. Populate the Link
+            const linkEl = clone.querySelector('.link-url');
+            linkEl.href = linkObj.url;
+            linkEl.innerText = linkObj.text; 
 
-            this.links.forEach((linkObj, index) => {
-                const clone = template.content.cloneNode(true); 
-                
-                const deleteBtn = clone.querySelector('.link-delete-btn');
-                const linkEl = clone.querySelector('.link-url');
+            // 2. Tag the Delete Button with its array index
+            const deleteBtn = clone.querySelector('.link-delete-btn');
+            deleteBtn.dataset.index = index;
 
-                // Setup Delete Button
-                deleteBtn.addEventListener('mousedown', (e) => e.stopPropagation()); 
-                deleteBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.links.splice(index, 1);
-                    this.renderLinks();
-                });
-
-                // Setup Link
-                linkEl.href = linkObj.url;
-                linkEl.innerText = linkObj.text; 
-                linkEl.addEventListener('mousedown', (e) => e.stopPropagation());
-
-                // Append to the DOM
-                this.linksContainer.appendChild(clone);
-            });
-            
-            if (typeof updateTreeLayout === 'function') {
-                updateTreeLayout();
-            }
-        }
+            this.linksContainer.appendChild(clone);
+        });
+        
+        if (typeof updateTreeLayout === 'function') updateTreeLayout();
+    }
 
     updatePosition() {
         // NODE_WIDTH is 288. We'll assume a standard height of ~160 for the offset
@@ -713,21 +728,17 @@ class TodoNode {
         this.children.push(newChild);
         
         this.calculateProgress(); 
-        
-        // Ensure the parent is expanded so the user can see the new child!
         this.isExpanded = true; 
         
+        // Clean, sequential calls
         updateTreeLayout();
         setActiveNode(newChild);
+        
         setTimeout(() => {
             const titleEl = newChild.element.querySelector('.node-title');
             focusAndSelectAll(titleEl);
         }, 10);
     }
-
-
-
-    // --- NEW PROGRESS & COMPLETION LOGIC ---
 
     /**
      * Handles the user clicking the checkbox.
@@ -763,8 +774,6 @@ setCompleteState(isComplete, recursive) {
         this.checkbox.checked = isComplete;
         
         if (recursive && isComplete) {
-            // FIX: We wrap this.children in [... ] to create a shallow copy. 
-            // This prevents the sorting algorithm from disrupting our loop!
             [...this.children].forEach(child => child.setCompleteState(true, true));
         }
         
@@ -801,181 +810,182 @@ setCompleteState(isComplete, recursive) {
             this.parent.calculateProgress();
         }
     }
-
-    /**
-     * Adds Tailwind classes to dim the node when complete, but restores on hover.
-     */
+    
     updateVisualStyle() {
-        if (this.isCompleted) {
-            this.element.classList.add('opacity-50', 'grayscale', 'hover:opacity-100', 'hover:grayscale-0');
-        } else {
-            this.element.classList.remove('opacity-50', 'grayscale', 'hover:opacity-100', 'hover:grayscale-0');
-        }
+        const classes = ['opacity-50', 'grayscale', 'hover:opacity-100', 'hover:grayscale-0'];
+        // Loops through the array and adds them if isCompleted is true, removes if false
+        classes.forEach(c => this.element.classList.toggle(c, this.isCompleted));
     }
 }
-
-
-
-
 
 // --- Layout Engine ---
-const HORIZONTAL_SPACING = 380; 
-const VERTICAL_GAP = 30;        
+class TreeLayoutEngine {
+    constructor() {
+        // Configuration
+        this.horizontalSpacing = 380; 
+        this.verticalGap = 30;        
+        this.nodeWidth = 288;
+        this.svgLayer = document.getElementById('connections-layer');
+    }
 
-function calculateSubtreeHeight(node) {
-    node.children.sort((a, b) => Number(a.isCompleted) - Number(b.isCompleted));
-    const nodeHeight = node.element.offsetHeight || 150; 
-    
-    // FIX: If node has no children OR is collapsed, its branch height is just itself
-    if (node.children.length === 0 || !node.isExpanded) {
-        node.subtreeHeight = nodeHeight;
+    calculateSubtreeHeight(node) {
+        node.children.sort((a, b) => Number(a.isCompleted) - Number(b.isCompleted));
+        const nodeHeight = node.element.offsetHeight || 150; 
+        
+        if (node.children.length === 0 || !node.isExpanded) {
+            node.subtreeHeight = nodeHeight;
+            return node.subtreeHeight;
+        }
+        
+        let childrenHeight = 0;
+        node.children.forEach(child => {
+            childrenHeight += this.calculateSubtreeHeight(child) + this.verticalGap;
+        });
+        childrenHeight -= this.verticalGap; 
+        
+        node.subtreeHeight = Math.max(nodeHeight, childrenHeight);
         return node.subtreeHeight;
     }
-    
-    let childrenHeight = 0;
-    node.children.forEach(child => {
-        childrenHeight += calculateSubtreeHeight(child) + VERTICAL_GAP;
-    });
-    childrenHeight -= VERTICAL_GAP; 
-    
-    node.subtreeHeight = Math.max(nodeHeight, childrenHeight);
-    return node.subtreeHeight;
-}
 
-function assignPositions(node, x, centerY) {
-    // 1. Reveal this specific node (because it is part of an expanded path)
-    node.element.classList.remove('hidden');
-
-    // 2. Position it
-    node.x = x;
-    node.y = centerY;
-    node.updatePosition();
-    
-    // 3. Update the Expand/Collapse Button UI
-    if (node.collapseBtn) {
-        if (node.children.length > 0) {
-            node.collapseBtn.classList.remove('hidden');
-            // Show a Minus if expanded, a Plus if collapsed
-            node.collapseBtn.innerText = node.isExpanded ? '−' : '+'; 
-        } else {
-            node.collapseBtn.classList.add('hidden');
-        }
-    }
-
-    // 4. STOP HERE if collapsed or if it has no children
-    if (node.children.length === 0 || !node.isExpanded) return;
-    
-    // 5. Otherwise, proceed to position children
-    let currentY = centerY - (node.subtreeHeight / 2);
-    node.children.forEach(child => {
-        let childCenterY = currentY + (child.subtreeHeight / 2);
-        assignPositions(child, x + HORIZONTAL_SPACING, childCenterY);
-        currentY += child.subtreeHeight + VERTICAL_GAP; 
-    });
-}
-
-// --- SVG Connection Lines ---
-const svgLayer = document.getElementById('connections-layer');
-const NODE_WIDTH = 288;
-
-function drawLines() {
-    const activePathIds = new Set();
-
-    function drawConnection(parent, child) {
-        const pathId = `path_${child.id}`;
-        activePathIds.add(pathId);
-
-        const startX = parent.x + (NODE_WIDTH / 2);
-        const startY = parent.y;
-        const endX = child.x - (NODE_WIDTH / 2);
-        const endY = child.y;
-
-        const curvature = 0.5; 
-        const deltaX = endX - startX;
-        const pathString = `M ${startX} ${startY} C ${startX + (deltaX * curvature)} ${startY}, ${endX - (deltaX * curvature)} ${endY}, ${endX} ${endY}`;
-
-        let path = document.getElementById(pathId);
-        if (!path) {
-            path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.id = pathId;
-            path.classList.add('drawing');
-            svgLayer.appendChild(path);
-        }
-
-        path.setAttribute('d', pathString);
-        path.setAttribute('fill', 'none');
+    assignPositions(node, x, centerY) {
+        node.element.classList.remove('hidden');
+        node.x = x;
+        node.y = centerY;
+        node.updatePosition();
         
-        const length = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2)) * 1.5;
-        path.style.setProperty('--path-length', length);
-
-        if (child.isCompleted) {
-            path.setAttribute('stroke', '#475569'); 
-            path.setAttribute('stroke-width', '2');
-            path.setAttribute('opacity', '0.4');
-        } else {
-            path.setAttribute('stroke', '#3b82f6'); 
-            path.setAttribute('stroke-width', '3');
-            path.setAttribute('opacity', '1');
+        if (node.collapseBtn) {
+            if (node.children.length > 0) {
+                node.collapseBtn.classList.remove('hidden');
+                node.collapseBtn.innerText = node.isExpanded ? '−' : '+'; 
+            } else {
+                node.collapseBtn.classList.add('hidden');
+            }
         }
 
-        // FIX: Only draw lines to grandchildren if THIS child is expanded!
-        if (child.isExpanded && child.children.length > 0) {
-            child.children.forEach(grandchild => drawConnection(child, grandchild));
-        }
+        if (node.children.length === 0 || !node.isExpanded) return;
+        
+        let currentY = centerY - (node.subtreeHeight / 2);
+        node.children.forEach(child => {
+            let childCenterY = currentY + (child.subtreeHeight / 2);
+            this.assignPositions(child, x + this.horizontalSpacing, childCenterY);
+            currentY += child.subtreeHeight + this.verticalGap; 
+        });
     }
 
-    // FIX: Only draw lines from roots if the root is expanded!
-    rootTasks.forEach(root => {
-        if (root.isExpanded && root.children.length > 0) {
-            root.children.forEach(child => drawConnection(root, child));
-        }
-    });
+    drawLines(rootNodes) {
+        const activePathIds = new Set();
 
-    Array.from(svgLayer.querySelectorAll('path')).forEach(path => {
-        if (!activePathIds.has(path.id)) path.remove();
-    });
+        // Arrow function keeps 'this' bound to the class so we can access this.nodeWidth
+        const drawConnection = (parent, child) => {
+            const pathId = `path_${child.id}`;
+            activePathIds.add(pathId);
+
+            const startX = parent.x + (this.nodeWidth / 2);
+            const startY = parent.y;
+            const endX = child.x - (this.nodeWidth / 2);
+            const endY = child.y;
+
+            const curvature = 0.5; 
+            const deltaX = endX - startX;
+            const pathString = `M ${startX} ${startY} C ${startX + (deltaX * curvature)} ${startY}, ${endX - (deltaX * curvature)} ${endY}, ${endX} ${endY}`;
+
+            let path = document.getElementById(pathId);
+            if (!path) {
+                path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.id = pathId;
+                path.classList.add('drawing');
+                this.svgLayer.appendChild(path);
+            }
+
+            path.setAttribute('d', pathString);
+            path.setAttribute('fill', 'none');
+            
+            const length = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2)) * 1.5;
+            path.style.setProperty('--path-length', length);
+
+            if (child.isCompleted) {
+                path.setAttribute('stroke', '#475569'); 
+                path.setAttribute('stroke-width', '2');
+                path.setAttribute('opacity', '0.4');
+            } else {
+                path.setAttribute('stroke', '#3b82f6'); 
+                path.setAttribute('stroke-width', '3');
+                path.setAttribute('opacity', '1');
+            }
+
+            if (child.isExpanded && child.children.length > 0) {
+                child.children.forEach(grandchild => drawConnection(child, grandchild));
+            }
+        };
+
+        rootNodes.forEach(root => {
+            if (root.isExpanded && root.children.length > 0) {
+                root.children.forEach(child => drawConnection(root, child));
+            }
+        });
+
+        Array.from(this.svgLayer.querySelectorAll('path')).forEach(path => {
+            if (!activePathIds.has(path.id)) path.remove();
+        });
+    }
+
+    update(rootNodes) {
+        if (rootNodes.length === 0) return;
+
+        const allNodes = [];
+        const gatherNodes = (node) => { allNodes.push(node); node.children.forEach(gatherNodes); };
+        rootNodes.forEach(gatherNodes);
+        
+        rootNodes.sort((a, b) => a.isCompleted - b.isCompleted);
+        allNodes.forEach(node => node.element.classList.remove('hidden'));
+
+        void document.body.offsetHeight; // Force reflow
+        rootNodes.forEach(root => this.calculateSubtreeHeight(root));
+        
+        allNodes.forEach(node => node.element.classList.add('hidden'));
+
+        const rootStartX = 0; 
+        const ROOT_GAP = 100; 
+        
+        const totalForestHeight = rootNodes.reduce((sum, root) => sum + root.subtreeHeight, 0) 
+                                  + ((rootNodes.length - 1) * ROOT_GAP);
+        
+        let currentTopY = -(totalForestHeight / 2);
+        
+        rootNodes.forEach(root => {
+            const rootCenterY = currentTopY + (root.subtreeHeight / 2);
+            this.assignPositions(root, rootStartX, rootCenterY);
+            currentTopY += root.subtreeHeight + ROOT_GAP;
+        });
+
+        this.drawLines(rootNodes);
+        
+        // Triggers your global save logic
+        if (typeof saveToLocalStorage === 'function') saveToLocalStorage(); 
+    }
 }
 
+// Instantiate the engine
+const LayoutEngine = new TreeLayoutEngine();
+
+let layoutFrameRequest = null;
+
+// bridge function
 function updateTreeLayout() {
-    if (rootTasks.length === 0) return;
-
-    // STEP 1: Temporarily unhide ALL nodes across the entire app. 
-    // We MUST do this so their HTML elements have a physical height for calculateSubtreeHeight to measure!
-    const allNodes = [];
-    const gatherNodes = (node) => { allNodes.push(node); node.children.forEach(gatherNodes); };
-    rootTasks.forEach(gatherNodes);
-    rootTasks.sort((a, b) => {
-        // Booleans cast to numbers: false is 0, true is 1.
-        // 0 - 1 = -1 (incomplete goes up)
-        // 1 - 0 = 1 (complete goes down)
-        return a.isCompleted - b.isCompleted;
+    if (layoutFrameRequest) cancelAnimationFrame(layoutFrameRequest);
+    
+    layoutFrameRequest = requestAnimationFrame(() => {
+        LayoutEngine.update(rootTasks);
+        
+        // Mark the layout as officially complete
+        layoutFrameRequest = null; 
+        
+        // If the camera was waiting for this layout, trigger the pan now!
+        if (pendingCameraPan) {
+            focusActiveNodeCamera();
+            pendingCameraPan = false;
+        }
     });
-    allNodes.forEach(node => node.element.classList.remove('hidden'));
-
-    // STEP 2: Measure everything
-    void document.body.offsetHeight;
-    rootTasks.forEach(root => calculateSubtreeHeight(root));
-    
-    // STEP 3: Hide them all again!
-    allNodes.forEach(node => node.element.classList.add('hidden'));
-
-    // STEP 4: Calculate positions (assignPositions will automatically unhide the nodes that are supposed to be visible)
-    const rootStartX = 0; 
-    const ROOT_GAP = 100; 
-    
-    const totalForestHeight = rootTasks.reduce((sum, root) => sum + root.subtreeHeight, 0) 
-                              + ((rootTasks.length - 1) * ROOT_GAP);
-    
-    let currentTopY = -(totalForestHeight / 2);
-    
-    rootTasks.forEach(root => {
-        const rootCenterY = currentTopY + (root.subtreeHeight / 2);
-        assignPositions(root, rootStartX, rootCenterY);
-        currentTopY += root.subtreeHeight + ROOT_GAP;
-    });
-
-    drawLines();
-    saveToLocalStorage();
 }
 
 function downloadBackup() {
@@ -983,7 +993,7 @@ function downloadBackup() {
     // This ensures you can download even if the user hasn't made a change yet.
     const data = {
         timestamp: Date.now(), // Create a fresh timestamp for the backup file
-        roots: rootTasks.map(root => serializeNode(root)) // We will define serializeNode next
+        roots: rootTasks.map(root => DataManager.serializeNode(root)) // We will define serializeNode next
     };
 
     // 2. Convert to JSON and create a Blob
@@ -1040,7 +1050,7 @@ function confirmClearList() {
             
             // Reset state arrays and layers
             rootTasks.length = 0;
-            svgLayer.innerHTML = '';
+            LayoutEngine.svgLayer.innerHTML = '';
             
             // Spawn the starting task (this handles updateTreeLayout and saveToLocalStorage for us)
             spawnDefaultTask();
@@ -1057,82 +1067,79 @@ function confirmClearList() {
     );
 }
 
-// --- Data Persistence (Save & Load) ---
-function saveToLocalStorage() {
-    const data = {
-        timestamp: Date.now(),
-        roots: rootTasks.map(root => serializeNode(root))
-    };
-    localStorage.setItem('todoTreeData', JSON.stringify(data));
-}
-
-function serializeNode(node) {
-    return {
-        title: node.title,
-        description: node.description,
-        dueDate: node.dueDate,
-        links: node.links,
-        isCompleted: node.isCompleted,
-        isExpanded: node.isExpanded,
-        color: node.color,
-        children: node.children.map(child => serializeNode(child))
-    };
-}
-
-function deserializeNode(data, parent = null) {
-    const node = new TodoNode(data.title, 0, 0, parent, data.color);
-    node.description = data.description || '';
-    node.dueDate = data.dueDate || '';
-    node.links = data.links || [];
-    node.isCompleted = data.isCompleted || false;
-    node.isExpanded = data.isExpanded !== undefined ? data.isExpanded : true; 
-
-    node.element.querySelector('.node-title').innerText = node.title;
-    node.element.querySelector('.node-desc').innerText = node.description;
-    if (node.dueDate) node.element.querySelector('.node-date').value = node.dueDate;
-    
-    node.checkbox.checked = node.isCompleted;
-    node.renderLinks();
-
-    // 2. Attach all children first
-    if (data.children) {
-        node.children = data.children.map(childData => deserializeNode(childData, node));
-    }
-    
-    node.updateVisualStyle();
-    
-    // 3. FIX: Now that all children are attached, force the node to calculate 
-    // its progress organically based on its actual tree structure.
-    node.calculateProgress(); 
-
-    return node;
-}
-function loadFromData(data) {
-    // 1. Wipe the current canvas completely clean
-    // FIX: Spread into a new array so we don't skip items while deleting
-    [...rootTasks].forEach(root => root.removeNode()); 
-    
-    // Safety net: Destroy any lingering DOM elements just in case
-    document.querySelectorAll('.node-container').forEach(el => el.remove());
-    
-    rootTasks.length = 0;
-    svgLayer.innerHTML = '';
-
-    // 2. Rebuild the nodes from the JSON data
-    if (data && data.roots && data.roots.length > 0) {
-        data.roots.forEach(rootData => {
-            const rootNode = deserializeNode(rootData, null);
-            rootTasks.push(rootNode);
-        });
-    } else {
-        // Fallback if they upload an empty or malformed file
-        spawnDefaultTask();
+// --- Data Persistence Engine ---
+class TreeDataManager {
+    constructor(storageKey = 'todoTreeData') {
+        this.storageKey = storageKey;
     }
 
-    // 3. Force layout to arrange the newly loaded nodes & save
-    updateTreeLayout();
+    save() {
+        const data = {
+            timestamp: Date.now(),
+            roots: rootTasks.map(root => this.serializeNode(root))
+        };
+        localStorage.setItem(this.storageKey, JSON.stringify(data));
+    }
+
+    serializeNode(node) {
+        return {
+            title: node.title,
+            description: node.description,
+            dueDate: node.dueDate,
+            links: node.links,
+            isCompleted: node.isCompleted,
+            isExpanded: node.isExpanded,
+            color: node.color,
+            children: node.children.map(child => this.serializeNode(child))
+        };
+    }
+
+    deserializeNode(data, parent = null) {
+        const node = new TodoNode(data.title, 0, 0, parent, data.color);
+        
+        // Load data
+        node.description = data.description || '';
+        node.dueDate = data.dueDate || '';
+        node.links = data.links || [];
+        node.isCompleted = data.isCompleted || false;
+        node.isExpanded = data.isExpanded !== undefined ? data.isExpanded : true; 
+
+        node.syncUI();
+
+        // Attach children recursively
+        if (data.children) {
+            node.children = data.children.map(childData => this.deserializeNode(childData, node));
+        }
+        
+        node.calculateProgress(); 
+        return node;
+    }
+
+    loadFromData(data) {
+        // 1. Wipe current board
+        [...rootTasks].forEach(root => root.removeNode()); 
+        document.querySelectorAll('.node-container').forEach(el => el.remove());
+        rootTasks.length = 0;
+        LayoutEngine.svgLayer.innerHTML = '';
+
+        // 2. Rebuild from data
+        if (data && data.roots && data.roots.length > 0) {
+            data.roots.forEach(rootData => {
+                const rootNode = this.deserializeNode(rootData, null);
+                rootTasks.push(rootNode);
+            });
+        } else {
+            spawnDefaultTask();
+        }
+
+        // Clean, sequential calls
+        updateTreeLayout();
+        recenterCamera(); // recenterCamera calls setActiveNode, so our new layout engine handles the timing perfectly!
+    }
 }
 
+// Instantiate the engine
+const DataManager = new TreeDataManager();
 
 
 function uploadBackup(event) {
@@ -1151,7 +1158,7 @@ function uploadBackup(event) {
                 // Compare timestamps. If current is newer, warn them.
                 if (currentData.timestamp && uploadedData.timestamp < currentData.timestamp) {
                     openConfirmModal(
-                        () => { loadFromData(uploadedData); }, 
+                        () => { DataManager.loadFromData(uploadedData); }, 
                         "The file you are uploading is older than your current list. Overwriting will cause you to lose recent changes.", 
                         "Older Backup Detected", 
                         "Overwrite Anyway"
@@ -1162,7 +1169,7 @@ function uploadBackup(event) {
             }
             
             // If no conflict, just load it
-            loadFromData(uploadedData);
+            DataManager.loadFromData(uploadedData);
 
             
         } catch (error) {
@@ -1173,12 +1180,23 @@ function uploadBackup(event) {
     };
     reader.readAsText(file);
 }
+
+function spawnDefaultTask() {
+    const initialTask = new TodoNode("Make List...", 0, 0);
+    initialTask.description = "The first task on your to-do list should always be make list so you have something to check off.";
+    initialTask.syncUI()
+    rootTasks.push(initialTask);
+    setActiveNode(initialTask);
+}
+
+
 // --- Initialize App ---
 const savedData = localStorage.getItem('todoTreeData');
 
 if (savedData) {
     try {
-        loadFromData(JSON.parse(savedData));
+        // Change this line to use the DataManager
+        DataManager.loadFromData(JSON.parse(savedData)); 
         updateTreeLayout();
     } catch (e) {
         console.error("Failed to load saved data", e);
@@ -1186,14 +1204,6 @@ if (savedData) {
     }
 } else {
     spawnDefaultTask();
-}
-
-function spawnDefaultTask() {
-    const initialTask = new TodoNode("Make List...", 0, 0);
-    initialTask.description = "The first task on your to-do list should always be make list so you have something to check off.";
-    initialTask.element.querySelector('.node-desc').innerText = initialTask.description;
-    rootTasks.push(initialTask);
-    setActiveNode(initialTask);
 }
 
 
@@ -1205,4 +1215,4 @@ recenterCamera();
 setTimeout(() => {
     updateTreeLayout();
     recenterCamera();
-}, 500);
+}, 300);
