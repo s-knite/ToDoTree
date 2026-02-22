@@ -274,15 +274,15 @@ window.addEventListener('keydown', (e) => {
     }
 
 
-    //Ctrl + N (New Root Task) ---
-    if (e.altKey && e.key.toLowerCase() === 'n') {
-        e.preventDefault(); // CRITICAL: Stops the browser from opening a new window!
-        
-        const newBtn = document.getElementById('add-root-btn');
-        if (newBtn) newBtn.click(); // Triggers your existing spawn & focus logic
-        
-        return; 
-    }
+  // New Task (Shift + N) ---
+  if (e.key.toLowerCase() === "n" && e.shiftKey && activeNode) {
+    e.preventDefault();
+
+    const newBtn = document.getElementById("add-root-btn");
+    if (newBtn) newBtn.click();
+
+    return;
+  }
 
 // If we are typing, ignore all navigation hotkeys below this line
     if (isTyping) return;
